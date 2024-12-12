@@ -24,7 +24,8 @@ def main():
         df = pd.read_excel(uploaded_file)
         # Ensure 'skus' column is properly parsed
         df['skus'] = df['skus'].apply(ast.literal_eval)
-                # Exploding the SKUs
+        
+        # Exploding the SKUs
         df_exploded = df.explode('skus').reset_index(drop=True)
 
         # Normalize the 'skus' column into separate 'sku' and 'quantity' columns
@@ -40,117 +41,132 @@ def main():
         st.subheader("Orders")
         st.dataframe(df_exploded)
 
-        # ---------------------------------------------------
-        # Step 1: Create Data Structures A and B
-        # ---------------------------------------------------
-        A = defaultdict(list)
-        B = defaultdict(list)
+        # Filter Section
+        st.subheader("Filter Orders")
+        filterable_columns = [col for col in df.columns if col not in ['_id', 'sku', 'quantity']]
+        selected_column = st.selectbox("Select a column to filter by", filterable_columns)
 
-        for _, row in df.iterrows():
-            if len(row['original_skus']) == 1:
-                sku = row['original_skus'][0]
-                quantity = row['skus'][0]['qty']
-                A[(sku, quantity)].append(row['_id'])
-            elif len(row['original_skus']) == 2:
-                skus = tuple(sorted([item['sku'] for item in row['skus']]))
-                quantities = tuple([item['qty'] for item in row['skus']])
-                B[(skus, quantities)].append(row['_id'])
+        if selected_column:
+            unique_values = df[selected_column].unique()
+            selected_value = st.selectbox(f"Select a value in {selected_column}", unique_values)
 
-        # Function to process and print the presets
-        def display_presets(A, B, df):
-            grouped_orders = set()
-            results = []
+            # Filter the DataFrame based on the selected value
+            filtered_df = df[df[selected_column] == selected_value]
+            st.write(f"Filtered Data based on {selected_column} = {selected_value}")
+            st.dataframe(filtered_df)
 
-            for key, order_ids in A.items():
-                if len(order_ids) > 1:
-                    grouped_orders.update(order_ids)
-                    results.append(f"Orders having the same SKU and same quantities - {order_ids}")
+            # ---------------------------------------------------
+            # Step 1: Create Data Structures A and B
+            # ---------------------------------------------------
+            A = defaultdict(list)
+            B = defaultdict(list)
 
-            sku_quantity_groups = defaultdict(list)
-            for key, order_ids in A.items():
-                sku, quantity = key
-                sku_quantity_groups[sku].append(quantity)
+            for _, row in filtered_df.iterrows():
+                if len(row['original_skus']) == 1:
+                    sku = row['original_skus'][0]
+                    quantity = row['skus'][0]['qty']
+                    A[(sku, quantity)].append(row['_id'])
+                elif len(row['original_skus']) == 2:
+                    skus = tuple(sorted([item['sku'] for item in row['skus']]))
+                    quantities = tuple([item['qty'] for item in row['skus']])
+                    B[(skus, quantities)].append(row['_id'])
 
-            for sku, quantities in sku_quantity_groups.items():
-                if len(set(quantities)) > 1:
-                    orders_with_diff_quantities = []
-                    for (sku_check, qty), order_ids in A.items():
-                        if sku_check == sku and qty in quantities:
-                            grouped_orders.update(order_ids)
-                            orders_with_diff_quantities.extend(order_ids)
-                    results.append(f"Orders having the same SKU but may differ in quantities - {orders_with_diff_quantities}")
+            # Function to process and print the presets
+            def display_presets(A, B, filtered_df):
+                grouped_orders = set()
+                results = []
 
-            for (skus, quantities), order_ids in B.items():
-                if len(order_ids) > 1:
-                    grouped_orders.update(order_ids)
-                    results.append(f"Orders with same SKUs and matching quantities for both - {order_ids}")
+                for key, order_ids in A.items():
+                    if len(order_ids) > 1:
+                        grouped_orders.update(order_ids)
+                        results.append(f"Orders having the same SKU and same quantities - {order_ids}")
 
-            sku_pair_groups = defaultdict(list)
-            for (skus, quantities), order_ids in B.items():
-                sku_pair_groups[skus].extend(order_ids)
+                sku_quantity_groups = defaultdict(list)
+                for key, order_ids in A.items():
+                    sku, quantity = key
+                    sku_quantity_groups[sku].append(quantity)
 
-            for sku_pair, order_ids in sku_pair_groups.items():
-                if len(order_ids) > 1:
-                    grouped_orders.update(order_ids)
-                    results.append(f"Orders with same SKUs but different quantities for at least one SKU - {order_ids}")
+                for sku, quantities in sku_quantity_groups.items():
+                    if len(set(quantities)) > 1:
+                        orders_with_diff_quantities = []
+                        for (sku_check, qty), order_ids in A.items():
+                            if sku_check == sku and qty in quantities:
+                                grouped_orders.update(order_ids)
+                                orders_with_diff_quantities.extend(order_ids)
+                        results.append(f"Orders having the same SKU but may differ in quantities - {orders_with_diff_quantities}")
 
-            sku_groups = defaultdict(list)
-            for (sku, qty), order_ids in A.items():
-                sku_groups[sku].extend(order_ids)
+                for (skus, quantities), order_ids in B.items():
+                    if len(order_ids) > 1:
+                        grouped_orders.update(order_ids)
+                        results.append(f"Orders with same SKUs and matching quantities for both - {order_ids}")
 
-            for (skus, quantities), order_ids in B.items():
-                for sku in skus:
+                sku_pair_groups = defaultdict(list)
+                for (skus, quantities), order_ids in B.items():
+                    sku_pair_groups[skus].extend(order_ids)
+
+                for sku_pair, order_ids in sku_pair_groups.items():
+                    if len(order_ids) > 1:
+                        grouped_orders.update(order_ids)
+                        results.append(f"Orders with same SKUs but different quantities for at least one SKU - {order_ids}")
+
+                sku_groups = defaultdict(list)
+                for (sku, qty), order_ids in A.items():
                     sku_groups[sku].extend(order_ids)
 
-            for sku, order_ids in sku_groups.items():
-                if len(order_ids) > 1:
-                    grouped_orders.update(order_ids)
-                    results.append(f"Orders with SKU {sku} - {order_ids}")
+                for (skus, quantities), order_ids in B.items():
+                    for sku in skus:
+                        sku_groups[sku].extend(order_ids)
 
-            all_orders = set(df['_id'])
-            miscellaneous_orders = all_orders - grouped_orders
+                for sku, order_ids in sku_groups.items():
+                    if len(order_ids) > 1:
+                        grouped_orders.update(order_ids)
+                        results.append(f"Orders with SKU {sku} - {order_ids}")
 
-            if miscellaneous_orders:
-                results.append(f"Miscellaneous Orders - {sorted(list(miscellaneous_orders))}")
+                all_orders = set(filtered_df['_id'])
+                miscellaneous_orders = all_orders - grouped_orders
 
-            city_groups = defaultdict(list)
-            for _, row in df.iterrows():
-                city_groups[row['city']].append(row['_id'])
+                if miscellaneous_orders:
+                    results.append(f"Miscellaneous Orders - {sorted(list(miscellaneous_orders))}")
 
-            for city, order_ids in city_groups.items():
-                if len(order_ids) > 1:
-                    results.append(f"City: {city} - {order_ids}")
+                city_groups = defaultdict(list)
+                for _, row in filtered_df.iterrows():
+                    city_groups[row['city']].append(row['_id'])
 
-            state_groups = defaultdict(list)
-            for _, row in df.iterrows():
-                state_groups[row['state']].append(row['_id'])
+                for city, order_ids in city_groups.items():
+                    if len(order_ids) > 1:
+                        results.append(f"City: {city} - {order_ids}")
 
-            for state, order_ids in state_groups.items():
-                if len(order_ids) > 1:
-                    results.append(f"State: {state} - {order_ids}")
+                state_groups = defaultdict(list)
+                for _, row in filtered_df.iterrows():
+                    state_groups[row['state']].append(row['_id'])
 
-            country_groups = defaultdict(list)
-            for _, row in df.iterrows():
-                country_groups[row['country']].append(row['_id'])
+                for state, order_ids in state_groups.items():
+                    if len(order_ids) > 1:
+                        results.append(f"State: {state} - {order_ids}")
 
-            for country, order_ids in country_groups.items():
-                if len(order_ids) > 1:
-                    results.append(f"Country: {country} - {order_ids}")
+                country_groups = defaultdict(list)
+                for _, row in filtered_df.iterrows():
+                    country_groups[row['country']].append(row['_id'])
 
-            carrier_groups = defaultdict(list)
-            for _, row in df.iterrows():
-                carrier_groups[row['carrier']].append(row['_id'])
+                for country, order_ids in country_groups.items():
+                    if len(order_ids) > 1:
+                        results.append(f"Country: {country} - {order_ids}")
 
-            for carrier, order_ids in carrier_groups.items():
-                if len(order_ids) > 1:
-                    results.append(f"Carrier: {carrier} - {order_ids}")
+                carrier_groups = defaultdict(list)
+                for _, row in filtered_df.iterrows():
+                    carrier_groups[row['carrier']].append(row['_id'])
 
-            return results
+                for carrier, order_ids in carrier_groups.items():
+                    if len(order_ids) > 1:
+                        results.append(f"Carrier: {carrier} - {order_ids}")
 
-        presets = display_presets(A, B, df)
-        st.subheader("Results")
-        for preset in presets:
-            st.write(preset)
+                return results
+
+            # Display results of presets for filtered data
+            presets = display_presets(A, B, filtered_df)
+            st.subheader("Results for Filtered Data")
+            for preset in presets:
+                st.write(preset)
 
 if __name__ == "__main__":
     main()
